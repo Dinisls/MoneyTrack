@@ -20,7 +20,7 @@ struct Asset: Identifiable, Codable, Hashable {
         case savings = "Mealheiro"
         case crypto = "Criptomoedas"
         case stock = "Ações"
-        case interest = "Dinheiro emllll Juros"
+        case interest = "Dinheiro em Juros"
     }
     
     var totalValue: Double {
