@@ -3,6 +3,7 @@ import SwiftUI
 struct AddAssetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var portfolioManager: PortfolioManager
+    @StateObject private var priceManager = PriceManager() // 🆕 Para buscar preços
     
     @State private var symbol = ""
     @State private var name = ""
@@ -13,12 +14,23 @@ struct AddAssetView: View {
     @State private var recordAsExpense = true
     @State private var annualInterestRate = ""
     
+    // 🆕 Estados para controle de preços
+    @State private var isLoadingCurrentPrice = false
+    @State private var hasLoadedInitialPrice = false
+    @State private var showingPriceHelp = false
+    
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Informações do Ativo")) {
                     TextField(symbolPlaceholder, text: $symbol)
                         .textInputAutocapitalization(.characters)
+                        .onChange(of: symbol) { _, newValue in
+                            // 🆕 Buscar preço automaticamente quando símbolo muda
+                            if shouldFetchPrice(for: assetType) && !newValue.isEmpty {
+                                fetchCurrentPrice()
+                            }
+                        }
                     
                     TextField(namePlaceholder, text: $name)
                     
@@ -34,6 +46,7 @@ struct AddAssetView: View {
                         purchasePrice = ""
                         currentPrice = ""
                         annualInterestRate = ""
+                        hasLoadedInitialPrice = false
                     }
                 }
                 
@@ -41,11 +54,85 @@ struct AddAssetView: View {
                     TextField(quantityLabel, text: $quantity)
                         .keyboardType(.decimalPad)
                     
-                    TextField("Valor Inicial (€)", text: $purchasePrice)
-                        .keyboardType(.decimalPad)
+                    // 🆕 NOVA SEÇÃO: Preços com explicação
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Valor Atual do Mercado")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            if shouldFetchPrice(for: assetType) {
+                                Button(action: { showingPriceHelp = true }) {
+                                    Image(systemName: "questionmark.circle")
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                                
+                                if isLoadingCurrentPrice {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Button("🔄") {
+                                        fetchCurrentPrice()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                        
+                        HStack {
+                            TextField("Valor atual (€)", text: $currentPrice)
+                                .keyboardType(.decimalPad)
+                            
+                            if shouldFetchPrice(for: assetType) && !symbol.isEmpty {
+                                Button("Buscar Preço") {
+                                    fetchCurrentPrice()
+                                }
+                                .font(.caption)
+                                .disabled(isLoadingCurrentPrice)
+                            }
+                        }
+                    }
                     
-                    TextField("Valor Atual (€)", text: $currentPrice)
-                        .keyboardType(.decimalPad)
+                    // 🆕 NOVA SEÇÃO: Preço de compra com explicação
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Valor de Compra")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button(action: copyCurrentToPurchase) {
+                                Text("Copiar do atual")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
+                            .disabled(currentPrice.isEmpty)
+                        }
+                        
+                        TextField("Valor pago na compra (€)", text: $purchasePrice)
+                            .keyboardType(.decimalPad)
+                        
+                        if !currentPrice.isEmpty && !purchasePrice.isEmpty,
+                           let current = Double(currentPrice),
+                           let purchase = Double(purchasePrice),
+                           current != purchase {
+                            
+                            let difference = current - purchase
+                            let percentageChange = (difference / purchase) * 100
+                            
+                            HStack {
+                                Image(systemName: difference >= 0 ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                                    .foregroundColor(difference >= 0 ? .green : .red)
+                                    .font(.caption)
+                                
+                                Text("Diferença: \(abs(difference).toCurrency()) (\(abs(percentageChange).toPercentage()))")
+                                    .font(.caption)
+                                    .foregroundColor(difference >= 0 ? .green : .red)
+                            }
+                        }
+                    }
                 }
                 
                 // 🆕 Seção de configuração de juros (apenas para tipo .interest)
@@ -87,14 +174,40 @@ struct AddAssetView: View {
                     }
                 }
                 
-                if let qty = Double(quantity), let price = Double(purchasePrice) {
+                // 🆕 Resumo melhorado
+                if let qty = Double(quantity) {
                     Section(header: Text("Resumo")) {
-                        HStack {
-                            Text("Valor Total do Investimento:")
-                            Spacer()
-                            Text((qty * price).toCurrency())
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
+                        if let purchasePrice = Double(purchasePrice) {
+                            HStack {
+                                Text("Valor Total do Investimento:")
+                                Spacer()
+                                Text((qty * purchasePrice).toCurrency())
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        
+                        if let currentPrice = Double(currentPrice) {
+                            HStack {
+                                Text("Valor Atual do Portfolio:")
+                                Spacer()
+                                Text((qty * currentPrice).toCurrency())
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        
+                        if let current = Double(currentPrice),
+                           let purchase = Double(purchasePrice) {
+                            let totalDifference = qty * (current - purchase)
+                            
+                            HStack {
+                                Text(totalDifference >= 0 ? "Lucro Atual:" : "Prejuízo Atual:")
+                                Spacer()
+                                Text(abs(totalDifference).toCurrency())
+                                    .fontWeight(.bold)
+                                    .foregroundColor(totalDifference >= 0 ? .green : .red)
+                            }
                         }
                         
                         if recordAsExpense {
@@ -108,8 +221,8 @@ struct AddAssetView: View {
                     }
                 }
                 
-                Section(header: Text("Exemplos")) {
-                    Text(exampleText)
+                Section(header: Text("Dicas")) {
+                    Text(getTipsForAssetType())
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -128,6 +241,64 @@ struct AddAssetView: View {
                     .disabled(!isValidForm)
                 }
             }
+            .alert("Sobre os Preços", isPresented: $showingPriceHelp) {
+                Button("OK") { }
+            } message: {
+                Text("• Valor Atual: Preço do ativo no mercado neste momento\n• Valor de Compra: Preço que pagou quando comprou o ativo\n\nA diferença entre estes valores mostra o seu lucro ou prejuízo atual.")
+            }
+        }
+    }
+    
+    // 🆕 Função para determinar se deve buscar preço
+    private func shouldFetchPrice(for type: Asset.AssetType) -> Bool {
+        return type == .crypto || type == .stock || type == .interest
+    }
+    
+    // 🆕 Função para buscar preço atual
+    private func fetchCurrentPrice() {
+        guard !symbol.isEmpty, shouldFetchPrice(for: assetType) else { return }
+        
+        isLoadingCurrentPrice = true
+        
+        Task {
+            if let price = await priceManager.getCurrentPrice(for: symbol, type: assetType) {
+                await MainActor.run {
+                    currentPrice = String(price)
+                    
+                    // 🆕 Se é a primeira vez e não há preço de compra, copiar automaticamente
+                    if !hasLoadedInitialPrice && purchasePrice.isEmpty {
+                        purchasePrice = String(price)
+                    }
+                    
+                    hasLoadedInitialPrice = true
+                    isLoadingCurrentPrice = false
+                }
+            } else {
+                await MainActor.run {
+                    isLoadingCurrentPrice = false
+                }
+            }
+        }
+    }
+    
+    // 🆕 Função para copiar preço atual para preço de compra
+    private func copyCurrentToPurchase() {
+        purchasePrice = currentPrice
+    }
+    
+    // 🆕 Dicas específicas para cada tipo de ativo
+    private func getTipsForAssetType() -> String {
+        switch assetType {
+        case .bank:
+            return "💡 Para contas bancárias, use o saldo atual como valor. O valor de compra pode ser o depósito inicial."
+        case .savings:
+            return "💡 Para poupanças, use o valor atual como saldo. O valor de compra é quanto depositou inicialmente."
+        case .crypto:
+            return "💡 O valor atual é obtido automaticamente da CoinMarketCap. Ajuste o valor de compra para o preço real que pagou."
+        case .stock:
+            return "💡 O valor atual é obtido do mercado. Insira o preço real que pagou por cada ação no valor de compra."
+        case .interest:
+            return "💡 Para obrigações, o valor nominal é usado. Ajuste o valor de compra se pagou prémio ou desconto."
         }
     }
     
@@ -156,21 +327,6 @@ struct AddAssetView: View {
         case .bank, .savings, .interest: return "Quantidade (1 para conta única)"
         case .crypto: return "Quantidade (ex: 0.5 BTC)"
         case .stock: return "Número de ações"
-        }
-    }
-    
-    private var exampleText: String {
-        switch assetType {
-        case .bank:
-            return "Adicione suas contas bancárias, cartões de débito, dinheiro em carteira, etc."
-        case .savings:
-            return "Inclua contas poupança, mealheiros, dinheiro guardado em casa, etc."
-        case .crypto:
-            return "Bitcoin, Ethereum, Solana e outras criptomoedas que possui."
-        case .stock:
-            return "Ações individuais de empresas cotadas em bolsa."
-        case .interest:
-            return "Certificados de Aforro (2,5% ao ano), Obrigações do Tesouro (3% ao ano), depósitos a prazo, etc. Os juros serão adicionados automaticamente cada mês."
         }
     }
     
@@ -207,7 +363,7 @@ struct AddAssetView: View {
             name: name,
             type: assetType,
             quantity: qty,
-            averagePrice: purchasePrice,
+            averagePrice: purchasePrice, // 🆕 Usar o preço de compra como custo médio
             currentPrice: currentPrice,
             lastUpdated: Date(),
             annualInterestRate: interestRate,

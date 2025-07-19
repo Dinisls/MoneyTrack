@@ -236,6 +236,8 @@ struct AssetSearchRowView: View {
     }
 }
 
+// MARK: - 🆕 MELHORADA: AssetDetailsView com Separação de Preços
+
 struct AssetDetailsView: View {
     let asset: AssetSearchResult
     let priceManager: PriceManager
@@ -247,7 +249,9 @@ struct AssetDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var quantity = ""
     @State private var currentPrice = ""
+    @State private var purchasePrice = "" // 🆕 Separar preço de compra
     @State private var isLoadingPrice = false
+    @State private var showingPriceHelp = false
     
     var body: some View {
         NavigationView {
@@ -269,24 +273,94 @@ struct AssetDetailsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 
-                Section(header: Text("Preço Atual")) {
+                // 🆕 NOVA SEÇÃO: Preços separados com explicação
+                Section(header:
                     HStack {
-                        Text("Preço por unidade:")
+                        Text("Preços")
                         Spacer()
-                        if isLoadingPrice {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
+                        Button(action: { showingPriceHelp = true }) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                ) {
+                    // Preço atual do mercado
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Valor Atual do Mercado")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            if isLoadingPrice {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            } else {
+                                Button("🔄") {
+                                    updateCurrentPrice()
+                                }
+                                .font(.caption)
+                            }
+                        }
+                        
+                        HStack {
                             TextField("€", text: $currentPrice)
                                 .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
+                            
+                            Button("Atualizar") {
+                                updateCurrentPrice()
+                            }
+                            .font(.caption)
+                            .disabled(isLoadingPrice)
                         }
                     }
                     
-                    Button("Atualizar Preço") {
-                        updateCurrentPrice()
+                    Divider()
+                    
+                    // Preço de compra
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Valor de Compra (preço que pagou)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button("Copiar do atual") {
+                                purchasePrice = currentPrice
+                            }
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                            .disabled(currentPrice.isEmpty)
+                        }
+                        
+                        TextField("Preço real pago por unidade (€)", text: $purchasePrice)
+                            .keyboardType(.decimalPad)
                     }
-                    .disabled(isLoadingPrice)
+                    
+                    // 🆕 Mostrar diferença se ambos os preços estão preenchidos
+                    if !currentPrice.isEmpty && !purchasePrice.isEmpty,
+                       let current = Double(currentPrice),
+                       let purchase = Double(purchasePrice),
+                       current != purchase {
+                        
+                        let difference = current - purchase
+                        let percentageChange = (difference / purchase) * 100
+                        
+                        HStack {
+                            Image(systemName: difference >= 0 ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                                .foregroundColor(difference >= 0 ? .green : .red)
+                                .font(.caption)
+                            
+                            Text("Diferença por unidade: \(abs(difference).toCurrency()) (\(abs(percentageChange).toPercentage()))")
+                                .font(.caption)
+                                .foregroundColor(difference >= 0 ? .green : .red)
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(difference >= 0 ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
+                        .cornerRadius(6)
+                    }
                 }
                 
                 Section(header: Text("Quantidade")) {
@@ -302,26 +376,99 @@ struct AssetDetailsView: View {
                             Text("% ao ano")
                                 .foregroundColor(.secondary)
                         }
+                        
+                        if let rate = Double(annualInterestRate), let amount = Double(currentPrice) {
+                            let monthlyInterest = (amount * rate / 12 / 100)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Juros mensais estimados: \(monthlyInterest.toCurrency())")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                        }
                     }
                 }
                 
                 Section(header: Text("Configurações")) {
                     Toggle("Registrar como despesa", isOn: $recordAsExpense)
+                    
+                    if recordAsExpense {
+                        Text("O valor investido será automaticamente registrado como despesa.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
-                if let qty = Double(quantity), let price = Double(currentPrice) {
-                    Section(header: Text("Resumo")) {
-                        HStack {
-                            Text("Valor Total:")
-                            Spacer()
-                            Text((qty * price).toCurrency())
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
+                // 🆕 Resumo detalhado
+                if let qty = Double(quantity) {
+                    Section(header: Text("Resumo do Investimento")) {
+                        if let purchasePriceValue = Double(purchasePrice) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text("Valor Total Investido")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text((qty * purchasePriceValue).toCurrency())
+                                        .font(.headline)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.blue)
+                                }
+                                
+                                Spacer()
+                                
+                                if let currentPriceValue = Double(currentPrice) {
+                                    VStack(alignment: .trailing) {
+                                        Text("Valor Atual")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text((qty * currentPriceValue).toCurrency())
+                                            .font(.headline)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                            }
+                            
+                            // Lucro/Prejuízo total
+                            if let currentPriceValue = Double(currentPrice),
+                               let purchasePriceValue = Double(purchasePrice) {
+                                let totalDifference = qty * (currentPriceValue - purchasePriceValue)
+                                let percentageChange = (totalDifference / (qty * purchasePriceValue)) * 100
+                                
+                                Divider()
+                                
+                                HStack {
+                                    Image(systemName: totalDifference >= 0 ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                                        .foregroundColor(totalDifference >= 0 ? .green : .red)
+                                    
+                                    VStack(alignment: .leading) {
+                                        Text(totalDifference >= 0 ? "Lucro Atual" : "Prejuízo Atual")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text("\(abs(totalDifference).toCurrency()) (\(abs(percentageChange).toPercentage()))")
+                                            .font(.headline)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(totalDifference >= 0 ? .green : .red)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(totalDifference >= 0 ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
+                                .cornerRadius(8)
+                            }
                         }
                     }
                 }
+                
+                // 🆕 Dicas baseadas no tipo de ativo
+                Section(header: Text("💡 Dica")) {
+                    Text(getTipForAssetType())
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
-            .navigationTitle("Adicionar Ativo")
+            .navigationTitle("Adicionar \(asset.symbol)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -337,9 +484,19 @@ struct AssetDetailsView: View {
             }
             .onAppear {
                 currentPrice = String(asset.currentPrice)
+                // 🆕 Automaticamente copiar preço atual para preço de compra na primeira vez
+                if purchasePrice.isEmpty {
+                    purchasePrice = String(asset.currentPrice)
+                }
+                
                 if asset.currentPrice == 0 {
                     updateCurrentPrice()
                 }
+            }
+            .alert("Sobre os Preços", isPresented: $showingPriceHelp) {
+                Button("OK") { }
+            } message: {
+                Text("🔹 Valor Atual: Preço do ativo no mercado neste momento\n🔹 Valor de Compra: Preço real que pagou quando comprou\n\nEsta separação permite calcular com precisão o seu lucro ou prejuízo real.")
             }
         }
     }
@@ -353,11 +510,29 @@ struct AssetDetailsView: View {
         }
     }
     
+    private func getTipForAssetType() -> String {
+        switch asset.type {
+        case .crypto:
+            return "O preço atual é obtido em tempo real. Ajuste o valor de compra para o preço exato que pagou na exchange."
+        case .stock:
+            return "Cotação atual do mercado. No valor de compra, coloque o preço real por ação que pagou (incluindo taxas se desejar)."
+        case .interest:
+            return "Para obrigações, o valor atual é o nominal. Ajuste o valor de compra se pagou prémio ou desconto."
+        case .bank, .savings:
+            return "Para contas, use o saldo atual e o valor inicial depositado."
+        }
+    }
+    
     private var isValidForm: Bool {
-        guard let _ = Double(quantity), let _ = Double(currentPrice) else { return false }
+        guard !quantity.isEmpty,
+              !currentPrice.isEmpty,
+              !purchasePrice.isEmpty,
+              Double(quantity) != nil,
+              Double(currentPrice) != nil,
+              Double(purchasePrice) != nil else { return false }
         
         if asset.type == .interest {
-            return Double(annualInterestRate) != nil
+            return !annualInterestRate.isEmpty && Double(annualInterestRate) != nil
         }
         
         return true
@@ -370,6 +545,10 @@ struct AssetDetailsView: View {
             if let price = await priceManager.getCurrentPrice(for: asset.symbol, type: asset.type) {
                 await MainActor.run {
                     currentPrice = String(price)
+                    // 🆕 Se ainda não há preço de compra definido, copiar automaticamente
+                    if purchasePrice.isEmpty {
+                        purchasePrice = String(price)
+                    }
                     isLoadingPrice = false
                 }
             } else {
@@ -382,7 +561,8 @@ struct AssetDetailsView: View {
     
     private func addAsset() {
         guard let qty = Double(quantity),
-              let price = Double(currentPrice) else { return }
+              let currentPriceValue = Double(currentPrice),
+              let purchasePriceValue = Double(purchasePrice) else { return }
         
         let interestRate: Double? = asset.type == .interest ? Double(annualInterestRate) : nil
         
@@ -391,8 +571,8 @@ struct AssetDetailsView: View {
             name: asset.name,
             type: asset.type,
             quantity: qty,
-            averagePrice: price,
-            currentPrice: price,
+            averagePrice: purchasePriceValue, // 🆕 Usar o preço de compra real
+            currentPrice: currentPriceValue,  // 🆕 Manter o preço atual do mercado
             lastUpdated: Date(),
             annualInterestRate: interestRate,
             lastInterestPayment: nil
