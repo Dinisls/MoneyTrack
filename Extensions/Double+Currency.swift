@@ -1,7 +1,7 @@
 import Foundation
 
 extension Double {
-    // MARK: - Formatação Original (funções existentes)
+    // MARK: - Formatação Original (mantida para compatibilidade)
     func toCurrency() -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -12,11 +12,35 @@ extension Double {
         return formatter.string(from: NSNumber(value: self)) ?? "€0,00"
     }
     
+    // MARK: - Novas Funções Multi-moeda
+    
+    /// Formatar valor na moeda selecionada pelo utilizador
+    func toCurrency(using currencyManager: CurrencyManager) -> String {
+        return currencyManager.getDisplayPrice(self)
+    }
+    
+    /// Formatar valor numa moeda específica
+    func toCurrency(in currency: Currency, using currencyManager: CurrencyManager) -> String {
+        switch currency {
+        case .EUR:
+            return currencyManager.formatPrice(self, in: .EUR)
+        case .USD:
+            let usdAmount = currencyManager.convert(self, from: .EUR, to: .USD)
+            return currencyManager.formatPrice(usdAmount, in: .USD)
+        }
+    }
+    
+    /// Obter valor formatado em ambas as moedas
+    func toBothCurrencies(using currencyManager: CurrencyManager) -> (eur: String, usd: String) {
+        return currencyManager.getBothCurrencies(self)
+    }
+    
+    // MARK: - Funções Existentes (mantidas)
+    
     func toPercentage() -> String {
         return String(format: "%.1f%%", self)
     }
     
-    // Para percentagens sem o símbolo %
     func toPercentageString() -> String {
         return String(format: "%.1f", self)
     }
@@ -39,28 +63,5 @@ extension Double {
         } else {
             return String(format: "%.8f", self)
         }
-    }
-    
-    // MARK: - 🆕 Novas Funções Multi-moeda
-    
-    /// Formatar valor na moeda selecionada pelo utilizador (requer CurrencyManager)
-    func toCurrencyWithManager(using currencyManager: CurrencyManager) -> String {
-        return currencyManager.getDisplayPrice(self)
-    }
-    
-    /// Formatar valor numa moeda específica (requer CurrencyManager)
-    func toCurrencyInSpecific(currency: Currency, using currencyManager: CurrencyManager) -> String {
-        switch currency {
-        case .EUR:
-            return currencyManager.formatPrice(self, in: .EUR)
-        case .USD:
-            let usdAmount = currencyManager.convert(self, from: .EUR, to: .USD)
-            return currencyManager.formatPrice(usdAmount, in: .USD)
-        }
-    }
-    
-    /// Obter valor formatado em ambas as moedas (requer CurrencyManager)
-    func getBothCurrencies(using currencyManager: CurrencyManager) -> (eur: String, usd: String) {
-        return currencyManager.getBothCurrencies(self)
     }
 }
