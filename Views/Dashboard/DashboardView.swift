@@ -70,18 +70,18 @@ struct DashboardView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(12)
                     
-                    // 🆕 Cards de resumo com multi-moeda
+                    // ✅ ATUALIZADA: Cards de resumo com receitas corretas
                     HStack(spacing: 15) {
                         MultiCurrencySummaryCard(
-                            title: "Receita Mensal",
-                            eurAmount: financeManager.financeData.monthlyIncome,
+                            title: "Receitas Totais",
+                            eurAmount: financeManager.financeData.totalMonthlyIncome,
                             color: .green,
                             showBothPrices: false
                         )
                         
                         MultiCurrencySummaryCard(
-                            title: "Despesa Total",
-                            eurAmount: financeManager.totalMonthlyExpenses,
+                            title: "Despesas Reais",
+                            eurAmount: financeManager.financeData.monthlyExpenses,
                             color: .red,
                             showBothPrices: false
                         )
@@ -89,19 +89,100 @@ struct DashboardView: View {
                     
                     HStack(spacing: 15) {
                         MultiCurrencySummaryCard(
-                            title: "Investimentos Este Mês",
-                            eurAmount: financeManager.getInvestmentExpenses(),
+                            title: "Investimentos",
+                            eurAmount: financeManager.financeData.monthlyInvestments,
                             color: .purple,
                             showBothPrices: false
                         )
                         
                         MultiCurrencySummaryCard(
-                            title: "Juros Recebidos",
-                            eurAmount: portfolioManager.getMonthlyInterestEarned(),
-                            color: .mint,
+                            title: "Depósitos",
+                            eurAmount: financeManager.financeData.monthlyDeposits,
+                            color: .blue,
                             showBothPrices: false
                         )
                     }
+                    
+                    // ✅ NOVA: Card de balanço final
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Balanço do Mês")
+                                .font(.headline)
+                            
+                            Spacer()
+                            
+                            let balance = financeManager.financeData.finalBalance
+                            Image(systemName: balance >= 0 ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                                .foregroundColor(balance >= 0 ? .green : .red)
+                        }
+                        
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Receitas - Despesas - Investimentos")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                let balance = financeManager.financeData.finalBalance
+                                DualPriceView(
+                                    eurAmount: abs(balance),
+                                    showBothPrices: false,
+                                    alignment: .leading
+                                )
+                                .foregroundColor(balance >= 0 ? .green : .red)
+                            }
+                            
+                            Spacer()
+                            
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(financeManager.financeData.finalBalance >= 0 ? "Saldo Positivo" : "Déficit")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                let percentage = financeManager.financeData.totalMonthlyIncome > 0 ?
+                                    (financeManager.financeData.finalBalance / financeManager.financeData.totalMonthlyIncome) * 100 : 0
+                                
+                                Text("\(abs(percentage), specifier: "%.1f")%")
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(financeManager.financeData.finalBalance >= 0 ? .green : .red)
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                    
+                    // ✅ NOVA: Breakdown detalhado das receitas
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Breakdown de Receitas")
+                            .font(.headline)
+                        
+                        VStack(spacing: 8) {
+                            BreakdownRow(
+                                title: "Salário/Trabalho",
+                                amount: financeManager.financeData.monthlyIncome - financeManager.financeData.monthlyDeposits,
+                                color: .green,
+                                icon: "briefcase.fill"
+                            )
+                            
+                            BreakdownRow(
+                                title: "Depósitos Bancários",
+                                amount: financeManager.financeData.monthlyDeposits,
+                                color: .blue,
+                                icon: "building.columns.fill"
+                            )
+                            
+                            BreakdownRow(
+                                title: "Juros Recebidos",
+                                amount: portfolioManager.getMonthlyInterestEarned(),
+                                color: .mint,
+                                icon: "percent"
+                            )
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
                     
                     // Distribuição de Patrimônio
                     DistributionChartView()
@@ -265,6 +346,36 @@ struct MultiCurrencyPerformanceCard: View {
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+}
+
+// MARK: - ✅ NOVA: Breakdown Row Component
+struct BreakdownRow: View {
+    let title: String
+    let amount: Double
+    let color: Color
+    let icon: String
+    @EnvironmentObject var currencyManager: CurrencyManager
+    
+    var body: some View {
+        HStack {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundColor(color)
+                    .frame(width: 20)
+                
+                Text(title)
+                    .font(.body)
+            }
+            
+            Spacer()
+            
+            Text(amount.toCurrency(using: currencyManager))
+                .font(.body)
+                .fontWeight(.medium)
+                .foregroundColor(amount > 0 ? color : .secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 

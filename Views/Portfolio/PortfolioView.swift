@@ -4,7 +4,8 @@ struct PortfolioView: View {
     @EnvironmentObject var portfolioManager: PortfolioManager
     @State private var showingAddAsset = false
     @State private var showingAssetSearch = false
-    @State private var selectedAssetType: Asset.AssetType = .crypto
+    @State private var showingBankTransaction = false
+    @State private var selectedAssetType: Asset.AssetType = .bank
     @State private var showingActionSheet = false
     
     var body: some View {
@@ -15,43 +16,65 @@ struct PortfolioView: View {
                     PriceUpdateHeader()
                 }
                 
-                if !portfolioManager.portfolio.assets.isEmpty {
-                    Picker("Tipo de Ativo", selection: $selectedAssetType) {
-                        ForEach(Asset.AssetType.allCases, id: \.self) { type in
-                            Text(type.rawValue).tag(type)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                    .padding()
+                // ✅ Quick Actions para Banco/Mealheiro/Juros
+                if hasFinancialAccounts {
+                    QuickActionsBar(showingBankTransaction: $showingBankTransaction)
                 }
                 
-                List {
-                    ForEach(filteredAssets) { asset in
-                        AssetRowView(asset: asset)
-                            .onTapGesture {
-                                // Atualizar preço individual se necessário
-                                if portfolioManager.assetNeedsUpdate(asset) {
-                                    portfolioManager.forceUpdatePrices()
-                                }
-                            }
+                // ✅ SEMPRE MOSTRAR: Picker de seções (mesmo quando vazio)
+                Picker("Tipo de Ativo", selection: $selectedAssetType) {
+                    ForEach(Asset.AssetType.allCases, id: \.self) { type in
+                        Text(type.rawValue).tag(type)
                     }
-                    .onDelete(perform: deleteAssets)
                 }
-                .listStyle(PlainListStyle())
-                .refreshable {
-                    // Pull to refresh para atualizar preços
-                    await portfolioManager.updateAllAssetPrices()
-                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
                 
+                // Lista ou Empty State
                 if filteredAssets.isEmpty {
                     EmptyPortfolioView(selectedAssetType: selectedAssetType) {
-                        showingActionSheet = true
+                        // ✅ COMPORTAMENTO INTELIGENTE: Mesmo comportamento do botão +
+                        if selectedAssetType == .bank || selectedAssetType == .savings || selectedAssetType == .interest {
+                            showingAddAsset = true
+                        } else {
+                            showingActionSheet = true
+                        }
+                    }
+                } else {
+                    List {
+                        ForEach(filteredAssets) { asset in
+                            EnhancedAssetRowView(asset: asset)
+                                .onTapGesture {
+                                    // Mostrar transações bancárias se for conta financeira
+                                    if asset.type == .bank || asset.type == .savings || asset.type == .interest {
+                                        showingBankTransaction = true
+                                    } else if portfolioManager.assetNeedsUpdate(asset) {
+                                        portfolioManager.forceUpdatePrices()
+                                    }
+                                }
+                        }
+                        .onDelete(perform: deleteAssets)
+                    }
+                    .listStyle(PlainListStyle())
+                    .refreshable {
+                        // Pull to refresh para atualizar preços
+                        await portfolioManager.updateAllAssetPrices()
                     }
                 }
             }
             .navigationTitle("Portfolio")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    // ✅ Botão de transações bancárias (só aparece se há contas bancárias)
+                    if hasFinancialAccounts {
+                        Button(action: {
+                            showingBankTransaction = true
+                        }) {
+                            Image(systemName: "creditcard")
+                        }
+                        .help("Transações bancárias")
+                    }
+                    
                     // Botão de atualizar preços
                     if portfolioManager.isLoading {
                         ProgressView()
@@ -65,9 +88,15 @@ struct PortfolioView: View {
                         .help("Atualizar preços")
                     }
                     
-                    // Botão de adicionar ativo
+                    // Botão de adicionar ativo - ✅ COMPORTAMENTO INTELIGENTE
                     Button(action: {
-                        showingActionSheet = true
+                        // Se está numa seção financeira, vai direto para adicionar manualmente
+                        if selectedAssetType == .bank || selectedAssetType == .savings || selectedAssetType == .interest {
+                            showingAddAsset = true
+                        } else {
+                            // Para crypto/ações, mostra opções
+                            showingActionSheet = true
+                        }
                     }) {
                         Image(systemName: "plus")
                     }
@@ -75,7 +104,7 @@ struct PortfolioView: View {
             }
             .actionSheet(isPresented: $showingActionSheet) {
                 ActionSheet(
-                    title: Text("Adicionar Ativo"),
+                    title: Text("Adicionar \(selectedAssetType.rawValue)"),
                     message: Text("Escolha como deseja adicionar o ativo"),
                     buttons: [
                         .default(Text("🔍 Buscar com Preços Reais")) {
@@ -94,6 +123,16 @@ struct PortfolioView: View {
             .sheet(isPresented: $showingAssetSearch) {
                 AssetSearchView()
             }
+            .sheet(isPresented: $showingBankTransaction) {
+                BankTransactionView(preselectedType: nil)
+            }
+        }
+    }
+    
+    // ✅ Propriedade: Verificar se tem contas financeiras
+    private var hasFinancialAccounts: Bool {
+        portfolioManager.portfolio.assets.contains { asset in
+            asset.type == .bank || asset.type == .savings || asset.type == .interest
         }
     }
     
@@ -106,6 +145,120 @@ struct PortfolioView: View {
             let asset = filteredAssets[index]
             portfolioManager.removeAsset(asset)
         }
+    }
+}
+
+// MARK: - Quick Actions Bar
+struct QuickActionsBar: View {
+    @Binding var showingBankTransaction: Bool
+    @State private var selectedTransactionType: BankTransactionView.BankTransactionType? = nil
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ações Rápidas")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    QuickActionButton(
+                        title: "Entrada",
+                        icon: "plus.circle.fill",
+                        color: .green,
+                        description: "Receber dinheiro"
+                    ) {
+                        selectedTransactionType = .deposit
+                        showingBankTransaction = true
+                    }
+                    
+                    QuickActionButton(
+                        title: "Saída",
+                        icon: "minus.circle.fill",
+                        color: .red,
+                        description: "Gastar dinheiro"
+                    ) {
+                        selectedTransactionType = .withdrawal
+                        showingBankTransaction = true
+                    }
+                    
+                    QuickActionButton(
+                        title: "Transferir",
+                        icon: "arrow.left.arrow.right.circle.fill",
+                        color: .blue,
+                        description: "Entre contas"
+                    ) {
+                        selectedTransactionType = nil // Deixar user escolher
+                        showingBankTransaction = true
+                    }
+                    
+                    QuickActionButton(
+                        title: "Poupança",
+                        icon: "banknote.fill",
+                        color: .orange,
+                        description: "Para mealheiro"
+                    ) {
+                        selectedTransactionType = .transferToSavings
+                        showingBankTransaction = true
+                    }
+                    
+                    QuickActionButton(
+                        title: "Investir",
+                        icon: "percent",
+                        color: .mint,
+                        description: "Em juros"
+                    ) {
+                        selectedTransactionType = .transferToInterest
+                        showingBankTransaction = true
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 8)
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+        .padding(.horizontal)
+        .sheet(isPresented: $showingBankTransaction) {
+            BankTransactionView(preselectedType: selectedTransactionType)
+        }
+    }
+}
+
+struct QuickActionButton: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let description: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(color)
+                
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                
+                Text(description)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(width: 80, height: 75)
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(color.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -196,60 +349,143 @@ struct EmptyPortfolioView: View {
     let addAction: () -> Void
     
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: iconForAssetType)
-                .font(.system(size: 50))
-                .foregroundColor(.gray)
-            
-            Text("Nenhum \(selectedAssetType.rawValue.lowercased()) encontrado")
-                .font(.headline)
-                .foregroundColor(.secondary)
-            
-            Text(descriptionForAssetType)
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Button(action: addAction) {
-                Label("Adicionar \(selectedAssetType.rawValue)", systemImage: "plus.circle.fill")
-                    .padding()
-                    .background(Color.blue)
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer()
+                
+                // Ícone e título
+                VStack(spacing: 16) {
+                    Image(systemName: iconForAssetType)
+                        .font(.system(size: 60))
+                        .foregroundColor(colorForAssetType)
+                    
+                    Text("Nenhum \(selectedAssetType.rawValue.lowercased()) encontrado")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .multilineTextAlignment(.center)
+                }
+                
+                // Descrição
+                Text(descriptionForAssetType)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                
+                // Botão de ação
+                Button(action: addAction) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Adicionar \(selectedAssetType.rawValue)")
+                    }
+                    .font(.headline)
                     .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(colorForAssetType)
+                    .cornerRadius(25)
+                }
+                
+                // ✅ Dicas específicas por tipo
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("💡 Dicas:")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    ForEach(tipsForAssetType, id: \.self) { tip in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("•")
+                                .foregroundColor(colorForAssetType)
+                                .fontWeight(.bold)
+                            Text(tip)
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                .padding(.horizontal)
+                
+                Spacer()
             }
+            .padding()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var iconForAssetType: String {
         switch selectedAssetType {
-        case .bank: return "building.columns"
-        case .savings: return "dollarsign.circle"
-        case .crypto: return "bitcoinsign.circle"
+        case .bank: return "building.columns.fill"
+        case .savings: return "banknote.fill"
+        case .crypto: return "bitcoinsign.circle.fill"
         case .stock: return "chart.line.uptrend.xyaxis"
         case .interest: return "percent"
+        }
+    }
+    
+    private var colorForAssetType: Color {
+        switch selectedAssetType {
+        case .bank: return .blue
+        case .savings: return .green
+        case .crypto: return .orange
+        case .stock: return .purple
+        case .interest: return .mint
         }
     }
     
     private var descriptionForAssetType: String {
         switch selectedAssetType {
         case .bank:
-            return "Adicione suas contas bancárias, cartões e dinheiro em carteira"
+            return "Adicione suas contas bancárias para começar a controlar seu dinheiro e fazer transações"
         case .savings:
-            return "Adicione suas contas poupança e mealheiros"
+            return "Crie mealheiros e contas poupança para organizar suas economias"
         case .crypto:
-            return "Adicione suas criptomoedas com preços em tempo real da CoinMarketCap"
+            return "Invista em criptomoedas e acompanhe seus preços em tempo real"
         case .stock:
-            return "Adicione suas ações com cotações atualizadas do mercado"
+            return "Construa seu portfólio de ações com cotações atualizadas do mercado"
         case .interest:
-            return "Adicione seus investimentos em obrigações e certificados com juros automáticos"
+            return "Invista em produtos que geram juros automáticos mensalmente"
+        }
+    }
+    
+    private var tipsForAssetType: [String] {
+        switch selectedAssetType {
+        case .bank:
+            return [
+                "Adicione sua conta principal primeiro",
+                "Use nomes claros como 'Conta CGD' ou 'Cartão Millennium'",
+                "Depois poderá fazer transferências entre contas"
+            ]
+        case .savings:
+            return [
+                "Perfeito para organizar objetivos de poupança",
+                "Pode definir taxas de juro se aplicável",
+                "Transfer dinheiro diretamente do banco"
+            ]
+        case .crypto:
+            return [
+                "Use a busca para encontrar preços atuais",
+                "Bitcoin, Ethereum e outras moedas populares",
+                "Preços atualizados automaticamente"
+            ]
+        case .stock:
+            return [
+                "Busque por ticker (AAPL, TSLA, MSFT)",
+                "Preços em tempo real dos mercados",
+                "Acompanhe lucros e prejuízos"
+            ]
+        case .interest:
+            return [
+                "Certificados de Aforro, Obrigações do Tesouro",
+                "Juros calculados e pagos automaticamente",
+                "Defina a taxa de juro anual"
+            ]
         }
     }
 }
 
 // MARK: - Enhanced Asset Row View
-
 struct EnhancedAssetRowView: View {
     let asset: Asset
     @EnvironmentObject var portfolioManager: PortfolioManager
@@ -262,6 +498,13 @@ struct EnhancedAssetRowView: View {
                         Text(asset.symbol)
                             .font(.headline)
                             .fontWeight(.bold)
+                        
+                        // ✅ Indicador para contas que podem fazer transações
+                        if asset.type == .bank || asset.type == .savings || asset.type == .interest {
+                            Image(systemName: "creditcard.fill")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                        }
                         
                         if portfolioManager.assetNeedsUpdate(asset) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -280,9 +523,26 @@ struct EnhancedAssetRowView: View {
                     
                     // Indicador de taxa de juros para investimentos
                     if asset.type == .interest, let rate = asset.annualInterestRate {
-                        Text("\(rate.toPercentageString())% ao ano")
-                            .font(.caption)
-                            .foregroundColor(.mint)
+                        HStack(spacing: 4) {
+                            Image(systemName: "percent")
+                                .font(.caption2)
+                                .foregroundColor(.mint)
+                            Text("\(rate.toPercentageString())% ao ano")
+                                .font(.caption)
+                                .foregroundColor(.mint)
+                        }
+                    }
+                    
+                    // ✅ Dica para contas bancárias
+                    if asset.type == .bank || asset.type == .savings || asset.type == .interest {
+                        HStack(spacing: 4) {
+                            Image(systemName: "hand.tap.fill")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                            Text("Toque para transações")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
                 
@@ -293,29 +553,50 @@ struct EnhancedAssetRowView: View {
                         .font(.headline)
                         .fontWeight(.bold)
                     
-                    HStack(spacing: 4) {
-                        Image(systemName: asset.profitLoss >= 0 ? "arrow.up" : "arrow.down")
-                            .font(.caption)
-                        Text(abs(asset.profitLoss).toCurrency())
-                        Text("(\(asset.profitLossPercentage.toPercentage()))")
-                            .font(.caption)
-                    }
-                    .foregroundColor(asset.profitLoss >= 0 ? .green : .red)
-                    
-                    Text("Preço: \(asset.currentPrice.toCurrency())")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    // Timestamp da última atualização
+                    // Mostrar lucro/prejuízo apenas para investimentos
                     if asset.type == .crypto || asset.type == .stock {
+                        HStack(spacing: 4) {
+                            Image(systemName: asset.profitLoss >= 0 ? "arrow.up" : "arrow.down")
+                                .font(.caption)
+                            Text(abs(asset.profitLoss).toCurrency())
+                            Text("(\(asset.profitLossPercentage.toPercentage()))")
+                                .font(.caption)
+                        }
+                        .foregroundColor(asset.profitLoss >= 0 ? .green : .red)
+                        
+                        Text("Preço: \(asset.currentPrice.toCurrency())")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
                         Text("Atualizado: \(timeAgoSince(asset.lastUpdated))")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    } else {
+                        // Para contas bancárias, mostrar info de saldo
+                        Text("Saldo disponível")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        if asset.type == .interest, let rate = asset.annualInterestRate {
+                            let monthlyInterest = asset.calculateMonthlyInterest()
+                            if monthlyInterest > 0 {
+                                Text("Próximos juros: \(monthlyInterest.toCurrency())")
+                                    .font(.caption)
+                                    .foregroundColor(.mint)
+                            }
+                        }
                     }
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
         }
+        .contentShape(Rectangle()) // Torna toda a área clicável
+        .background(
+            // Background diferenciado para contas financeiras
+            (asset.type == .bank || asset.type == .savings || asset.type == .interest) ?
+            Color.blue.opacity(0.05) : Color.clear
+        )
+        .cornerRadius(8)
     }
     
     private func timeAgoSince(_ date: Date) -> String {

@@ -83,6 +83,11 @@
 			path = Assets.xcassets;
 			sourceTree = "<group>";
 		};
+		0AF490BA2E37C06800ABC45D /* API */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = API;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +127,7 @@
 				0A6657522E2AD39A0009F043 /* Managers */,
 				0A6657542E2AD3A40009F043 /* Extensions */,
 				0A6657562E2AD3B00009F043 /* Assets.xcassets */,
+				0AF490BA2E37C06800ABC45D /* API */,
 			);
 			sourceTree = "<group>";
 		};
@@ -157,6 +163,7 @@
 				0A6657522E2AD39A0009F043 /* Managers */,
 				0A6657542E2AD3A40009F043 /* Extensions */,
 				0A6657562E2AD3B00009F043 /* Assets.xcassets */,
+				0AF490BA2E37C06800ABC45D /* API */,
 			);
 			name = MoneyTrack;
 			packageProductDependencies = (

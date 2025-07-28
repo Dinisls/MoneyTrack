@@ -35,9 +35,12 @@ class FinanceManager: ObservableObject {
                 "Entretenimento",
                 "Transferências Bancárias",
                 "Poupanças",
+                "Poupanças com Juros",
+                "Depósito Bancário",
                 "Investimentos Cripto",
                 "Investimentos Ações",
                 "Investimentos Juros",
+                "Juros Recebidos",
                 "Outros"
             ]
             self.saveData()
@@ -68,14 +71,15 @@ class FinanceManager: ObservableObject {
         saveData()
     }
     
-    // 📊 Nova função para obter despesas de investimentos
+    // ✅ ATUALIZADA: Função para obter apenas despesas de investimentos (que reduzem dinheiro disponível)
     func getInvestmentExpenses() -> Double {
         let calendar = Calendar.current
         let now = Date()
         let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? now
         
+        // Apenas investimentos que são realmente despesas (saída de dinheiro)
         let investmentTypes: [Transaction.TransactionType] = [
-            .bankDeposit, .savingsDeposit, .cryptoBuy, .stockBuy, .interestInvestment
+            .cryptoBuy, .stockBuy, .interestInvestment
         ]
         
         return financeData.transactions
@@ -83,8 +87,76 @@ class FinanceManager: ObservableObject {
             .reduce(0) { $0 + $1.amount }
     }
     
+    // ✅ NOVA FUNÇÃO: Obter receitas de depósitos bancários e poupanças
+    func getDepositIncome() -> Double {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? now
+        
+        // Transações que são receitas (entrada de dinheiro)
+        let incomeTypes: [Transaction.TransactionType] = [
+            .income, .interestEarned
+        ]
+        
+        return financeData.transactions
+            .filter { incomeTypes.contains($0.type) && $0.date >= startOfMonth }
+            .reduce(0) { $0 + $1.amount }
+    }
+    
+    // ✅ NOVA FUNÇÃO: Receita total incluindo depósitos bancários
+    var totalMonthlyIncome: Double {
+        getDepositIncome()
+    }
+    
     // 📊 Despesas totais incluindo investimentos
     var totalMonthlyExpenses: Double {
         financeData.monthlyExpenses + getInvestmentExpenses()
+    }
+    
+    // ✅ NOVA FUNÇÃO: Balanço real (receitas - despesas)
+    var monthlyBalance: Double {
+        totalMonthlyIncome - totalMonthlyExpenses
+    }
+    
+    // ✅ NOVA FUNÇÃO: Receitas por categoria
+    func getIncomeByCategory() -> [String: Double] {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? now
+        
+        let incomeTransactions = financeData.transactions.filter {
+            ($0.type == .income || $0.type == .interestEarned) && $0.date >= startOfMonth
+        }
+        
+        var incomeByCategory: [String: Double] = [:]
+        
+        for transaction in incomeTransactions {
+            incomeByCategory[transaction.category, default: 0] += transaction.amount
+        }
+        
+        return incomeByCategory
+    }
+    
+    // ✅ NOVA FUNÇÃO: Investimentos por categoria
+    func getInvestmentsByCategory() -> [String: Double] {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? now
+        
+        let investmentTypes: [Transaction.TransactionType] = [
+            .cryptoBuy, .stockBuy, .interestInvestment
+        ]
+        
+        let investmentTransactions = financeData.transactions.filter {
+            investmentTypes.contains($0.type) && $0.date >= startOfMonth
+        }
+        
+        var investmentsByCategory: [String: Double] = [:]
+        
+        for transaction in investmentTransactions {
+            investmentsByCategory[transaction.category, default: 0] += transaction.amount
+        }
+        
+        return investmentsByCategory
     }
 }

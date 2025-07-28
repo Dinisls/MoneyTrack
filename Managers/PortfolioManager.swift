@@ -49,6 +49,7 @@ class PortfolioManager: ObservableObject {
         }
     }
     
+    // ✅ MODIFICADO: Lógica de adição de ativos com diferenciação entre depósitos e investimentos
     func addAsset(_ asset: Asset, recordExpense: Bool = true) {
         let totalInvestment = asset.quantity * asset.averagePrice
         
@@ -70,7 +71,8 @@ class PortfolioManager: ObservableObject {
         }
         
         if recordExpense {
-            registerAssetPurchaseAsExpense(asset: asset, totalAmount: totalInvestment)
+            // ✅ NOVA LÓGICA: Diferenciar entre depósitos e investimentos
+            registerAssetTransaction(asset: asset, totalAmount: totalInvestment)
         }
         
         saveData()
@@ -179,8 +181,6 @@ class PortfolioManager: ObservableObject {
         }
     }
     
-    // Resto do código existente...
-    
     // 🆕 Iniciar sistema de pagamento de juros automático
     private func startInterestPayments() {
         // Verificar juros a cada hora (em produção pode ser diário)
@@ -268,14 +268,13 @@ class PortfolioManager: ObservableObject {
             .reduce(0) { $0 + $1.amount }
     }
     
-    private func registerAssetPurchaseAsExpense(asset: Asset, totalAmount: Double) {
+    // ✅ NOVA FUNÇÃO: Registrar transação baseada no tipo de ativo
+    private func registerAssetTransaction(asset: Asset, totalAmount: Double) {
         guard let financeManager = financeManager else { return }
         
-        let category = getCategoryForAssetType(asset.type)
-        let description = getDescriptionForAsset(asset)
-        let transactionType = getTransactionTypeForAssetType(asset.type)
+        let (transactionType, category, description) = getTransactionDetails(for: asset, amount: totalAmount)
         
-        let expenseTransaction = Transaction(
+        let transaction = Transaction(
             date: Date(),
             type: transactionType,
             category: category,
@@ -286,49 +285,74 @@ class PortfolioManager: ObservableObject {
             price: asset.averagePrice
         )
         
-        financeManager.addTransaction(expenseTransaction)
+        financeManager.addTransaction(transaction)
+        
+        print("💰 Transação registrada: \(description) - \(totalAmount.toCurrency()) como \(transactionType.rawValue)")
     }
     
-    private func getCategoryForAssetType(_ type: Asset.AssetType) -> String {
-        switch type {
-        case .bank: return "Transferências Bancárias"
-        case .savings: return "Poupanças"
-        case .crypto: return "Investimentos Cripto"
-        case .stock: return "Investimentos Ações"
-        case .interest: return "Investimentos Juros"
-        }
-    }
-    
-    // ✅ CORRIGIDO: Descrição para ativos
-    private func getDescriptionForAsset(_ asset: Asset) -> String {
+    // ✅ NOVA FUNÇÃO: Determinar detalhes da transação baseado no tipo de ativo
+    private func getTransactionDetails(for asset: Asset, amount: Double) -> (Transaction.TransactionType, String, String) {
         switch asset.type {
         case .bank:
-            return "Depósito em \(asset.name)"
+            // Banco = Receita (dinheiro que entra na sua conta)
+            return (
+                .income,
+                "Depósito Bancário",
+                "Depósito de \(amount.toCurrency()) em \(asset.name)"
+            )
+            
         case .savings:
-            return "Depósito em \(asset.name)"
-        case .crypto:
-            return "Compra de \(asset.quantity.toCryptoQuantity()) \(asset.symbol)"
-        case .stock:
-            if asset.quantity == floor(asset.quantity) {
-                return "Compra de \(Int(asset.quantity)) ações \(asset.symbol)"
-            } else {
-                return "Compra de \(asset.quantity.toQuantityString()) ações \(asset.symbol)"
-            }
+            // Poupança = Receita (dinheiro que entra na poupança)
+            return (
+                .income,
+                "Poupanças",
+                "Depósito de \(amount.toCurrency()) em \(asset.name)"
+            )
+            
         case .interest:
-            let rateText = asset.annualInterestRate != nil ? " (\(asset.annualInterestRate!.toPercentageString())% ao ano)" : ""
-            return "Investimento em \(asset.name)\(rateText)"
+            // Investimento em juros pode ser tratado de duas formas:
+            // Se for uma conta que gera juros (como poupança) = Receita
+            // Se for um investimento (como certificados) = Despesa de investimento
+            
+            // Vamos considerar como receita se for uma conta poupança com juros
+            // e como investimento se for certificados/obrigações
+            if asset.name.lowercased().contains("poupança") || asset.name.lowercased().contains("conta") {
+                return (
+                    .income,
+                    "Poupanças com Juros",
+                    "Depósito de \(amount.toCurrency()) em \(asset.name) com \((asset.annualInterestRate ?? 0).toPercentageString())% ao ano"
+                )
+            } else {
+                return (
+                    .interestInvestment,
+                    "Investimentos Juros",
+                    "Investimento de \(amount.toCurrency()) em \(asset.name) (\((asset.annualInterestRate ?? 0).toPercentageString())% ao ano)"
+                )
+            }
+            
+        case .crypto:
+            // Cripto = Despesa de investimento
+            return (
+                .cryptoBuy,
+                "Investimentos Cripto",
+                "Compra de \(asset.quantity.toCryptoQuantity()) \(asset.symbol) por \(asset.averagePrice.toCurrency()) cada"
+            )
+            
+        case .stock:
+            // Ações = Despesa de investimento
+            let sharesText = asset.quantity == floor(asset.quantity) ?
+                "\(Int(asset.quantity)) ações" :
+                "\(asset.quantity.toQuantityString()) ações"
+            
+            return (
+                .stockBuy,
+                "Investimentos Ações",
+                "Compra de \(sharesText) \(asset.symbol) por \(asset.averagePrice.toCurrency()) cada"
+            )
         }
     }
     
-    private func getTransactionTypeForAssetType(_ type: Asset.AssetType) -> Transaction.TransactionType {
-        switch type {
-        case .bank: return .bankDeposit
-        case .savings: return .savingsDeposit
-        case .crypto: return .cryptoBuy
-        case .stock: return .stockBuy
-        case .interest: return .interestInvestment
-        }
-    }
+    // Funções auxiliares existentes...
     
     func getBankBalance() -> Double {
         portfolio.assets.filter { $0.type == .bank }.reduce(0) { $0 + $1.totalValue }
@@ -385,6 +409,28 @@ class PortfolioManager: ObservableObject {
         if !priceManager.areAPIsConfigured() {
             saveData()
         }
+    }
+    
+    // ✅ NOVA FUNÇÃO: Atualizar saldo de uma conta específica
+    func updateAccountBalance(_ account: Asset, newBalance: Double) {
+        if let index = portfolio.assets.firstIndex(where: { $0.id == account.id }) {
+            // Para contas bancárias e poupanças, o currentPrice representa o saldo
+            portfolio.assets[index].currentPrice = newBalance
+            portfolio.assets[index].lastUpdated = Date()
+            saveData()
+            
+            print("💰 Saldo atualizado: \(account.name) - \(newBalance.toCurrency())")
+        }
+    }
+    
+    // ✅ NOVA FUNÇÃO: Obter conta por símbolo e tipo
+    func getAccount(symbol: String, type: Asset.AssetType) -> Asset? {
+        return portfolio.assets.first { $0.symbol == symbol && $0.type == type }
+    }
+    
+    // ✅ NOVA FUNÇÃO: Verificar se tem saldo suficiente
+    func hasSufficientBalance(_ account: Asset, amount: Double) -> Bool {
+        return account.totalValue >= amount
     }
     
     deinit {
